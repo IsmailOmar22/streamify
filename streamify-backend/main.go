@@ -1,16 +1,21 @@
 package main
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+
+	_ "github.com/lib/pq"
 )
 
-// Enable CORS for local dev (localhost:3000)
 func enableCORS(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
 	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
@@ -30,14 +35,12 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse the multipart form
 	err := r.ParseMultipartForm(10 << 20) // 10MB
 	if err != nil {
 		http.Error(w, "Failed to parse form", http.StatusBadRequest)
 		return
 	}
 
-	// Get the file
 	file, handler, err := r.FormFile("file")
 	if err != nil {
 		http.Error(w, "Failed to get file", http.StatusBadRequest)
@@ -45,7 +48,6 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// Save to uploads directory
 	uploadPath := filepath.Join("uploads", handler.Filename)
 	dst, err := os.Create(uploadPath)
 	if err != nil {
@@ -55,20 +57,64 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	defer dst.Close()
 	io.Copy(dst, file)
 
-	// Process with FFmpeg (convert to .ts as example)
-	outputPath := filepath.Join("processed", handler.Filename+".ts")
-	cmd := exec.Command("ffmpeg", "-i", uploadPath, "-c", "copy", outputPath)
-	err = cmd.Run()
+	// Enqueue job in Redis
+	rdb := redis.NewClient(&redis.Options{
+		Addr: "redis:6379",
+	})
+	ctx := context.Background()
+	job := fmt.Sprintf(`{"filename": "%s"}`, handler.Filename)
+	err = rdb.LPush(ctx, "video_jobs", job).Err()
 	if err != nil {
-		http.Error(w, "Failed to run FFmpeg", http.StatusInternalServerError)
+		http.Error(w, "Failed to enqueue job", http.StatusInternalServerError)
 		return
 	}
 
-	fmt.Fprintf(w, "File uploaded and processed successfully: %s", handler.Filename)
+	fmt.Fprintf(w, "✅ File uploaded and job enqueued: %s", handler.Filename)
 }
 
 func main() {
-	// Create upload & processed folders if not exist
+
+	connStr := "host=postgres port=5432 user=user password=password dbname=streamifydb sslmode=disable"
+	var db *sql.DB
+	var err error
+
+	for i := 0; i < 10; i++ {
+		db, err = sql.Open("postgres", connStr)
+		if err == nil {
+			err = db.Ping()
+			if err == nil {
+				break
+			}
+		}
+
+		fmt.Println("Waiting for database to be ready...")
+		time.Sleep(2 * time.Second)
+	}
+	if err != nil {
+		log.Fatal("Error connecting to database after retries:", err)
+	}
+	defer db.Close()
+	fmt.Println("✅ Connected to PostgreSQL")
+
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS users (
+			id SERIAL PRIMARY KEY,
+			username TEXT NOT NULL,
+			email TEXT NOT NULL
+		);
+
+		CREATE TABLE IF NOT EXISTS videos (
+			id SERIAL PRIMARY KEY,
+			filename TEXT NOT NULL,
+			uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			user_id INTEGER REFERENCES users(id)
+		);
+	`)
+	if err != nil {
+		log.Fatal("Error creating tables:", err)
+	}
+
+	//uploads + processed
 	os.MkdirAll("uploads", os.ModePerm)
 	os.MkdirAll("processed", os.ModePerm)
 

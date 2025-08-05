@@ -7,13 +7,13 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./streamify-backend/uploads:/app/uploads
-      - ./streamify-backend/processed:/app/processed
+      - shared-uploads:/app/uploads
+      - shared-processed:/app/processed
     depends_on:
-      - db
+      - postgres
       - redis
 
-  db:
+  postgres:
     image: postgres:15
     restart: always
     environment:
@@ -31,5 +31,19 @@ services:
     ports:
       - "6379:6379"
 
+  worker:
+    build:
+      context: ./streamify-worker
+    depends_on:
+      - redis
+    volumes:
+      - shared-uploads:/app/uploads
+      - shared-processed:/app/processed
+
+    env_file:
+      - .env
+
 volumes:
   pgdata:
+  shared-uploads:
+  shared-processed:
