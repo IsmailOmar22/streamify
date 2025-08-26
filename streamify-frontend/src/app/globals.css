@@ -1,4 +1,7 @@
 @import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 :root {
   --background: #ffffff;
@@ -14,7 +17,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
+    --background: black;
     --foreground: #ededed;
   }
 }
@@ -23,4 +26,37 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  position: relative;
+  overflow-x: hidden;
+}
+
+body::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 100%;
+  z-index: -1;
+  
+  /* --- UPDATED: Fewer, fainter, and softer color blobs --- */
+  background: radial-gradient(circle at 20% 25%, rgba(13, 110, 253, 0.15), transparent 40%),
+              radial-gradient(circle at 80% 35%, rgba(132, 0, 255, 0.15), transparent 40%);
+  
+  background-size: 400% 400%;
+  
+  /* --- UPDATED: Slower animation duration --- */
+  animation: moveGradient 30s linear infinite;
+}
+
+@keyframes moveGradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
 }

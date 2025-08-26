@@ -1,26 +1,22 @@
-# Build stage
-FROM golang:1.24.4 AS builder
+# Use the official Golang image which is based on Debian.
+# This single stage ensures all libraries are available.
+FROM golang:1.24.4
+
+# Install FFmpeg and its dependencies using the package manager.
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg
+
+# Set up the working directory
 WORKDIR /app
 
-# Install FFmpeg dependencies
-RUN apt-get update && apt-get install -y wget unzip xz-utils
+# Copy Go module files and download dependencies
+COPY go.mod go.sum ./
+RUN go mod download
 
-# Download and extract FFmpeg static build
-RUN wget https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz && \
-    tar -xf ffmpeg-release-amd64-static.tar.xz && \
-    cp ffmpeg-*-static/ffmpeg /usr/local/bin/
-
+# Copy the rest of the source code
 COPY . .
-RUN go build -o worker
 
-# Final image
-FROM gcr.io/distroless/base-debian12
-WORKDIR /app
+# Build the Go application
+RUN go build -o worker .
 
-# Copy compiled Go binary
-COPY --from=builder /app/worker .
-
-# Copy ffmpeg binary from build stage
-COPY --from=builder /usr/local/bin/ffmpeg /usr/local/bin/ffmpeg
-
-ENTRYPOINT ["./worker"]
+# Set the command to run the worker
+CMD ["./worker"]
