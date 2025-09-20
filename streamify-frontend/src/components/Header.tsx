@@ -2,10 +2,12 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation'; // ADDED: Import useRouter
 
 const Header = () => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const router = useRouter(); // ADDED: Initialize the router
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -21,6 +23,11 @@ const Header = () => {
     };
   }, [isDropdownOpen]);
 
+  // ADDED: Function to handle the logout action
+  const handleLogout = () => {
+    localStorage.removeItem('token'); // Clear the session token
+    router.push('/login'); // Redirect to the login page
+  };
 
   return (
     <>
@@ -71,7 +78,11 @@ const Header = () => {
                     <svg className="w-4 h-4 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 7h1a2 2 0 012 2v5a2 2 0 01-2 2h-1m-6 0H6a2 2 0 01-2-2V9a2 2 0 012-2h1m3 0V5a2 2 0 00-2-2h-1a2 2 0 00-2 2v2m0 0h1"></path></svg>
                     API Keys
                   </Link>
-                  <button className="flex items-center w-full px-3 py-2 text-sm text-red-400 hover:bg-red-500/20 hover:text-red-300 rounded-md transition-colors">
+                  {/* EDITED: Added the onClick handler to the button */}
+                  <button 
+                    onClick={handleLogout}
+                    className="flex items-center w-full px-3 py-2 text-sm text-red-400 hover:bg-red-500/20 hover:text-red-300 rounded-md transition-colors"
+                  >
                     <svg className="w-4 h-4 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
                     Logout
                   </button>

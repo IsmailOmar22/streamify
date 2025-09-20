@@ -19,7 +19,6 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// --- UPDATED: VideoJob now includes the VideoID ---
 type VideoJob struct {
 	Filename string `json:"filename"`
 	VideoID  int    `json:"video_id"`
@@ -84,7 +83,7 @@ func main() {
 		cmd.Stderr = &stderr
 		if err := cmd.Run(); err != nil {
 			log.Printf("❌ FFmpeg failed for %s: %v\n%s", job.Filename, err, stderr.String())
-			updateVideoStatus(db, job.VideoID, "failed", "") // NEW: Update status to 'failed' on error
+			updateVideoStatus(db, job.VideoID, "failed", "") 
 			os.Remove(inputPath)
 			os.RemoveAll(outputDir)
 			continue
@@ -115,7 +114,6 @@ func main() {
 		log.Printf("☁️ Uploaded all files for %s to S3", job.Filename)
 
 		playlistS3Key := filepath.Join(s3KeyPrefix, "playlist.m3u8")
-		// --- UPDATED: Update status to 'ready' instead of inserting ---
 		err = updateVideoStatus(db, job.VideoID, "ready", playlistS3Key)
 		if err != nil {
 			log.Printf("❌ Failed to update DB for %s: %v", job.Filename, err)
@@ -152,8 +150,6 @@ func uploadToS3(uploader *s3manager.Uploader, bucketName string, filePath string
 	})
 	return err
 }
-
-// --- RENAMED & REWRITTEN: This function now performs an UPDATE ---
 func updateVideoStatus(db *sql.DB, videoID int, status string, s3Key string) error {
 	query := `UPDATE videos SET status = $1, s3_key = $2 WHERE id = $3`
 	_, err := db.Exec(query, status, s3Key, videoID)

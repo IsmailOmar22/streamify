@@ -3,8 +3,6 @@
 import React, { useState, FormEvent, ChangeEvent, DragEvent } from 'react';
 import Modal from './Modal';
 
-// Define the props for our component.
-// It will accept a function to call from the parent when an upload is successful.
 interface UploadZoneProps {
   onUploadSuccess: () => void;
 }
@@ -41,6 +39,7 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onUploadSuccess }) => {
       setIsUploading(false);
       return;
     }
+
     const simulateProgress = setInterval(() => {
       setUploadProgress(prev => Math.min(prev + 5, 95));
     }, 200);
@@ -58,22 +57,23 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onUploadSuccess }) => {
       clearInterval(simulateProgress);
       setUploadProgress(100);
 
-      if (!res.ok) {
+      // --- THIS IS THE FIX: Handle both JSON and text responses ---
+      if (res.ok) {
+        const data = await res.json();
+        setUploadMessage(data.message || 'Upload successful!');
+        onUploadSuccess();
+        setTimeout(() => {
+          setIsModalOpen(false);
+        }, 1500);
+      } else {
         const errorText = await res.text();
         throw new Error(errorText || 'Upload failed');
       }
-      
-      const data = await res.json();
-      setUploadMessage(data.message || 'Upload successful!');
-      onUploadSuccess();
-      setTimeout(() => {
-        setIsModalOpen(false);
-      }, 1500);
+      // --- END OF FIX ---
 
     } catch (err: any) {
       console.error(err);
       setUploadMessage(err.message || 'Upload failed.');
-      clearInterval(simulateProgress);
     } finally {
       setIsUploading(false);
     }
@@ -86,33 +86,20 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onUploadSuccess }) => {
     setUploadProgress(0);
     setIsModalOpen(true);
   };
-  const handleDragEnter = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
-  };
 
-  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-  };
-
-  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-  };
-
+  const handleDragEnter = (e: DragEvent<HTMLDivElement>) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); };
+  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); };
+  const handleDragOver = (e: DragEvent<HTMLDivElement>) => { e.preventDefault(); e.stopPropagation(); };
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
-
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       setSelectedFile(e.dataTransfer.files[0]);
       setUploadMessage('');
     }
   };
+
 
   return (
     <div className="lg:col-span-1"> 
@@ -135,6 +122,7 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onUploadSuccess }) => {
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
+        
         <div className="p-6">
           <form onSubmit={handleSubmit}>
             {!selectedFile && (

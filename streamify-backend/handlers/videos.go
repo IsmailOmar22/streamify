@@ -59,26 +59,20 @@ func GetUserVideosHandler(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-// --- NEW: Handler for Deleting a Video ---
 func DeleteVideoHandler(db *sql.DB, sess *session.Session) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// 1. Get User ID from token to ensure ownership
 		userID, ok := r.Context().Value(UserIDKey).(float64)
 		if !ok {
 			http.Error(w, "Invalid user ID in token", http.StatusInternalServerError)
 			return
 		}
 
-		// 2. Get Video ID from the URL path (e.g., /videos/123)
 		idStr := strings.TrimPrefix(r.URL.Path, "/videos/")
 		videoID, err := strconv.Atoi(idStr)
 		if err != nil {
 			http.Error(w, "Invalid video ID in URL path", http.StatusBadRequest)
 			return
 		}
-
-		// 3. Get the S3 Key from the database BEFORE deleting
-		// This also verifies that the video belongs to the user making the request
 		var s3Key sql.NullString
 		err = db.QueryRow("SELECT s3_key FROM videos WHERE id = $1 AND user_id = $2", videoID, int(userID)).Scan(&s3Key)
 		if err != nil {
@@ -90,16 +84,13 @@ func DeleteVideoHandler(db *sql.DB, sess *session.Session) http.HandlerFunc {
 			return
 		}
 
-		// 4. Delete the files from AWS S3 if an s3_key exists
 		if s3Key.Valid && s3Key.String != "" {
 			err = deleteS3Folder(sess, os.Getenv("S3_BUCKET_NAME"), s3Key.String)
 			if err != nil {
 				log.Printf("Failed to delete S3 files for key %s: %v", s3Key.String, err)
-				// Decide if you want to stop or continue. We'll continue and delete the DB record anyway.
 			}
 		}
 
-		// 5. Delete the record from the PostgreSQL database
 		_, err = db.Exec("DELETE FROM videos WHERE id = $1 AND user_id = $2", videoID, int(userID))
 		if err != nil {
 			http.Error(w, "Failed to delete video record", http.StatusInternalServerError)
@@ -111,14 +102,11 @@ func DeleteVideoHandler(db *sql.DB, sess *session.Session) http.HandlerFunc {
 	}
 }
 
-// --- NEW: Helper function to delete all files in an S3 "folder" ---
 func deleteS3Folder(sess *session.Session, bucket string, key string) error {
 	s3Svc := s3.New(sess)
 
-	// The prefix for HLS files is the key without the "playlist.m3u8" part
 	folderPrefix := strings.TrimSuffix(key, "playlist.m3u8")
 
-	// List all objects with the given prefix
 	listOutput, err := s3Svc.ListObjectsV2(&s3.ListObjectsV2Input{
 		Bucket: aws.String(bucket),
 		Prefix: aws.String(folderPrefix),
@@ -128,16 +116,13 @@ func deleteS3Folder(sess *session.Session, bucket string, key string) error {
 	}
 
 	if len(listOutput.Contents) == 0 {
-		return nil // No files to delete
+		return nil 
 	}
 
-	// Create a list of objects to delete
 	var objectsToDelete []*s3.ObjectIdentifier
 	for _, object := range listOutput.Contents {
 		objectsToDelete = append(objectsToDelete, &s3.ObjectIdentifier{Key: object.Key})
 	}
-
-	// Batch delete the objects
 	_, err = s3Svc.DeleteObjects(&s3.DeleteObjectsInput{
 		Bucket: aws.String(bucket),
 		Delete: &s3.Delete{Objects: objectsToDelete},

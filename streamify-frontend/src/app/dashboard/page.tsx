@@ -2,17 +2,18 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Header from '../../components/Header';
-// CORRECTED: Component imports should use PascalCase to match their filenames
-import StatCard from '../../components/Statcard'; 
+import StatCard from '../../components/Statcard';
 import VideoList from '../../components/videoList';
 import UploadZone from '../../components/UploadZone';
 
-// Define a type for your video object
+// EDITED: Added title and filename to the Video type for correctness
 type Video = {
   id: number;
   status: string;
   s3_key: string;
   created_at: string;
+  title: string;
+  filename: string;
 };
 
 // BEST PRACTICE: Icons are defined outside the component to prevent re-declaration on every render.
@@ -69,6 +70,33 @@ export default function DashboardPage() {
     };
   }, [fetchAndPoll]);
 
+  // ADDED: Function to handle the video deletion API call and UI update
+  const handleDeleteVideo = async (videoId: number) => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      console.error("Authentication token not found.");
+      return;
+    }
+
+    try {
+      const response = await fetch(`http://localhost:8080/videos/${videoId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        // If successful, remove the video from the state to update the UI
+        setVideos(currentVideos => currentVideos.filter(video => video.id !== videoId));
+      } else {
+        console.error("Failed to delete the video.");
+      }
+    } catch (error) {
+      console.error("An error occurred while deleting the video:", error);
+    }
+  };
+
   const videosProcessing = videos.filter(v => v.status === 'processing').length;
 
   return (
@@ -88,7 +116,8 @@ export default function DashboardPage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <VideoList isLoading={isLoading} videos={videos} />
+          {/* EDITED: Passed the new delete function down to VideoList */}
+          <VideoList isLoading={isLoading} videos={videos} onDeleteVideo={handleDeleteVideo} />
           <UploadZone onUploadSuccess={fetchAndPoll} />
         </div>
       </main>

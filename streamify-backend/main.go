@@ -99,36 +99,42 @@ func main() {
 		log.Fatal("Error initializing database:", err)
 	}
 
-	// Register public handlers
-	http.HandleFunc("/register", handlers.RegisterHandler(server.db))
-	http.HandleFunc("/login", handlers.LoginHandler(server.db, server.config.JWTSecret))
+	// Use a router (mux) to organize handlers
+	mux := http.NewServeMux()
+	mux.HandleFunc("/register", handlers.RegisterHandler(server.db))
+	mux.HandleFunc("/login", handlers.LoginHandler(server.db, server.config.JWTSecret))
+	mux.HandleFunc("/upload", handlers.JWTMiddleware(server.uploadHandler, server.config.JWTSecret))
+	mux.HandleFunc("/videos/", handlers.JWTMiddleware(server.videosRouter, server.config.JWTSecret))
+	mux.HandleFunc("/keys/", handlers.JWTMiddleware(server.keysRouter, server.config.JWTSecret))
 
-	// Register protected handlers
-	http.HandleFunc("/upload", handlers.JWTMiddleware(server.uploadHandler, server.config.JWTSecret))
-
-	// --- THIS IS THE FIX ---
-	// Explicitly register the router for BOTH paths to prevent redirects.
-	http.HandleFunc("/videos", handlers.JWTMiddleware(server.videosRouter, server.config.JWTSecret))
-	http.HandleFunc("/videos/", handlers.JWTMiddleware(server.videosRouter, server.config.JWTSecret))
-	// --- END OF FIX ---
+	// Wrap the entire mux with the CORS middleware
+	handler := handlers.CORSMiddleware(mux)
 
 	log.Println("🚀 Server started on :8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Fatal(http.ListenAndServe(":8080", handler))
 }
 
-// This router handles different methods on the /videos/ path
 func (s *Server) videosRouter(w http.ResponseWriter, r *http.Request) {
-	// Route for GET /videos or /videos/ (to list all videos for a user)
 	if (r.URL.Path == "/videos" || r.URL.Path == "/videos/") && r.Method == http.MethodGet {
 		handlers.GetUserVideosHandler(s.db)(w, r)
 		return
 	}
-	// Route for DELETE /videos/{id} (to delete a single video)
 	if strings.HasPrefix(r.URL.Path, "/videos/") && r.Method == http.MethodDelete {
 		handlers.DeleteVideoHandler(s.db, s.awsSess)(w, r)
 		return
 	}
+	http.NotFound(w, r)
+}
 
+func (s *Server) keysRouter(w http.ResponseWriter, r *http.Request) {
+	if (r.URL.Path == "/keys" || r.URL.Path == "/keys/") && r.Method == http.MethodGet {
+		handlers.GetAPIKeyHandler(s.db)(w, r)
+		return
+	}
+	if (r.URL.Path == "/keys" || r.URL.Path == "/keys/") && r.Method == http.MethodPost {
+		handlers.GenerateAPIKeyHandler(s.db)(w, r)
+		return
+	}
 	http.NotFound(w, r)
 }
 
@@ -168,8 +174,8 @@ func (s *Server) uploadHandler(w http.ResponseWriter, r *http.Request) {
 	insertQuery := `INSERT INTO videos (user_id, filename, title, status) VALUES ($1, $2, $3, 'processing') RETURNING id`
 	err = s.db.QueryRow(insertQuery, int(userID), handler.Filename, videoTitle).Scan(&videoID)
 	if err != nil {
-		http.Error(w, "Failed to create video record", http.StatusInternalServerError)
 		log.Printf("DB insert error: %v", err)
+		http.Error(w, "Failed to create video record", http.StatusInternalServerError)
 		return
 	}
 
@@ -196,22 +202,31 @@ func (s *Server) uploadHandler(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) initDB() error {
 	createUsersTable := `
-	CREATE TABLE IF NOT EXISTS users (
-		id SERIAL PRIMARY KEY,
-		username TEXT NOT NULL,
-		email TEXT UNIQUE NOT NULL,
-		password TEXT NOT NULL,
-		created_at TIMESTAMPTZ DEFAULT NOW()
-	);`
+    CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        username TEXT NOT NULL,
+        email TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    );`
 
 	createVideosTable := `
-	CREATE TABLE IF NOT EXISTS videos (
+    CREATE TABLE IF NOT EXISTS videos (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        filename TEXT NOT NULL,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'processing',
+        s3_key TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    );`
+
+	createAPIKeysTable := `
+	CREATE TABLE IF NOT EXISTS api_keys (
 		id SERIAL PRIMARY KEY,
-		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-		filename TEXT NOT NULL,
-		title TEXT NOT NULL,
-		status TEXT NOT NULL DEFAULT 'processing',
-		s3_key TEXT,
+		user_id INTEGER UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		key_hash TEXT NOT NULL,
+		last_four TEXT NOT NULL,
 		created_at TIMESTAMPTZ DEFAULT NOW()
 	);`
 
@@ -224,6 +239,12 @@ func (s *Server) initDB() error {
 	if err != nil {
 		return fmt.Errorf("error creating videos table: %w", err)
 	}
-	log.Println("Database tables checked/created successfully.")
+
+	_, err = s.db.Exec(createAPIKeysTable)
+	if err != nil {
+		return fmt.Errorf("error creating api_keys table: %w", err)
+	}
+
+	log.Println("✅ Database tables checked/created successfully.")
 	return nil
 }
